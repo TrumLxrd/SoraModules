@@ -12,7 +12,7 @@
     "quality": "1080p",
     "baseUrl": "https://flixer.su",
     "searchBaseUrl": "https://api.themoviedb.org/3/search/multi?api_key=d9956abacedb5b43a16cc4864b26d451&query=%s",
-    "scriptUrl": "https://raw.githubusercontent.com/TrumLxrd/SoraModule-Cineby/main/flixer.js",
+    "scriptUrl": "https://raw.githubusercontent.com/TrumLxrd/SoraModules/refs/heads/main/flixer.js",
     "type": "shows/movies",
     "asyncJS": true,
     "softsub": false
