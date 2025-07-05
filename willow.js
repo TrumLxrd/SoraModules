@@ -1,6 +1,6 @@
 /**
- * Willow.arlen.icu Sora Scraper Module
- * A comprehensive scraper for the Willow streaming platform
+ * Willow.arlen.icu Sora Scraper Module - CORRECTED VERSION
+ * Fixed searchResults function to properly handle the current HTML structure
  * Supports both movies and TV series with episode extraction
  */
 
@@ -23,78 +23,148 @@ function getAbsoluteUrl(url, baseUrl = "https://willow.arlen.icu") {
 }
 
 /**
- * Extract search results from HTML
- * @param {string} html - Raw HTML content
- * @returns {Array} Array of search result objects
+ * CORRECTED: Extract search results from HTML - Updated for current willow.arlen.icu structure
  */
 function searchResults(html) {
     const results = [];
 
     try {
-        // Parse HTML using DOMParser
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        // Look for movie/series cards in search results
-        // Based on the site structure observed
-        const mediaCards = doc.querySelectorAll('a[href*="/movies/"], a[href*="/series/"]');
+        // NEW: Look for the specific search results structure found on willow.arlen.icu
+        // The search results page has a "SEARCH RESULTS" section with specific formatting
 
-        mediaCards.forEach(card => {
-            try {
-                const href = card.getAttribute('href');
-                const img = card.querySelector('img');
-                const titleElement = card.querySelector('h3, .title, [class*="title"]') || 
-                                   card.parentElement.querySelector('h3, .title, [class*="title"]');
+        // First, check if this is the search results page with actual results
+        const searchResultsSection = doc.querySelector('h1, h2, h3');
+        const isSearchResultsPage = searchResultsSection && 
+            (searchResultsSection.textContent.includes('SEARCH RESULTS') || 
+             doc.body.textContent.includes('SEARCH RESULTS'));
 
-                let title = '';
-                if (titleElement) {
-                    title = titleElement.textContent || titleElement.innerText || '';
-                } else {
-                    // Fallback: extract title from href
-                    const urlMatch = href.match(/\/(movies|series)\/\d+-(.+)$/);
-                    if (urlMatch) {
-                        title = urlMatch[2].replace(/-/g, ' ');
-                    }
-                }
+        if (isSearchResultsPage) {
+            // Look for movie/series cards in the search results section
+            // Based on the HTML structure, each result appears to be in a specific format
+            const movieCards = doc.querySelectorAll('div, section, article');
 
-                const image = img ? img.src || img.getAttribute('data-src') || '' : '';
-
-                if (title && href) {
-                    results.push({
-                        title: cleanTitle(title),
-                        image: getAbsoluteUrl(image),
-                        href: getAbsoluteUrl(href)
-                    });
-                }
-            } catch (e) {
-                console.warn('Error parsing search card:', e);
-            }
-        });
-
-        // If no specific cards found, try alternative selectors
-        if (results.length === 0) {
-            const alternativeCards = doc.querySelectorAll('[href*="/movies/"], [href*="/series/"]');
-            alternativeCards.forEach(card => {
+            for (const card of movieCards) {
                 try {
-                    const href = card.getAttribute('href');
-                    const textContent = card.textContent || card.innerText || '';
-                    const img = card.querySelector('img') || card.parentElement.querySelector('img');
+                    // Look for title patterns within each potential card
+                    const titleElements = card.querySelectorAll('h1, h2, h3, h4, h5, h6, .title, [class*="title"]');
+                    const links = card.querySelectorAll('a[href*="/movies/"], a[href*="/series/"]');
 
-                    if (href && textContent.trim()) {
+                    // Check if this card contains a movie/series
+                    if (links.length > 0 || titleElements.length > 0) {
+                        let title = '';
+                        let href = '';
+                        let image = '';
+
+                        // Extract link first
+                        if (links.length > 0) {
+                            href = links[0].getAttribute('href');
+                        }
+
+                        // Extract title from various possible locations
+                        for (const titleEl of titleElements) {
+                            const textContent = titleEl.textContent || titleEl.innerText || '';
+                            if (textContent.trim() && !textContent.includes('SEARCH RESULTS') && 
+                                !textContent.includes('Pages') && textContent.length > 1) {
+                                title = textContent.trim();
+                                break;
+                            }
+                        }
+
+                        // If no title found in headers, look in the card text
+                        if (!title) {
+                            const cardText = card.textContent || card.innerText || '';
+                            const lines = cardText.split('\n').filter(line => line.trim());
+                            for (const line of lines) {
+                                if (line.trim() && !line.includes('SEARCH RESULTS') && 
+                                    !line.includes('Pages') && line.length > 1 && line.length < 100) {
+                                    title = line.trim();
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Look for images
+                        const img = card.querySelector('img');
+                        if (img) {
+                            image = img.src || img.getAttribute('data-src') || '';
+                        }
+
+                        // If we found valid data, add to results
+                        if (title && title.length > 1) {
+                            results.push({
+                                title: cleanTitle(title),
+                                image: getAbsoluteUrl(image),
+                                href: getAbsoluteUrl(href)
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Error parsing search result card:', e);
+                }
+            }
+        }
+
+        // FALLBACK: If no results found with the above method, try alternative selectors
+        if (results.length === 0) {
+            // Try to find any links that contain movie or series patterns
+            const allLinks = doc.querySelectorAll('a[href*="/movies/"], a[href*="/series/"]');
+
+            allLinks.forEach(link => {
+                try {
+                    const href = link.getAttribute('href');
+                    let title = link.textContent || link.innerText || '';
+
+                    // If link doesn't have text, look for nearby text
+                    if (!title.trim()) {
+                        const parent = link.parentElement;
+                        if (parent) {
+                            title = parent.textContent || parent.innerText || '';
+                        }
+                    }
+
+                    // Extract title from URL if still no title
+                    if (!title.trim() && href) {
+                        const urlMatch = href.match(/\/(movies|series)\/\d+-(.+)$/);
+                        if (urlMatch) {
+                            title = urlMatch[2].replace(/-/g, ' ');
+                        }
+                    }
+
+                    const img = link.querySelector('img') || link.parentElement?.querySelector('img');
+                    const image = img ? img.src || img.getAttribute('data-src') || '' : '';
+
+                    if (title.trim() && href) {
                         results.push({
-                            title: cleanTitle(textContent.trim()),
-                            image: img ? getAbsoluteUrl(img.src || img.getAttribute('data-src') || '') : '',
+                            title: cleanTitle(title),
+                            image: getAbsoluteUrl(image),
                             href: getAbsoluteUrl(href)
                         });
                     }
                 } catch (e) {
-                    console.warn('Error parsing alternative card:', e);
+                    console.warn('Error parsing fallback link:', e);
                 }
             });
         }
 
+        // Remove duplicates based on href
+        const uniqueResults = [];
+        const seenHrefs = new Set();
+
+        for (const result of results) {
+            if (result.href && !seenHrefs.has(result.href)) {
+                seenHrefs.add(result.href);
+                uniqueResults.push(result);
+            }
+        }
+
+        console.log(`Found ${uniqueResults.length} search results`);
+
     } catch (error) {
         console.error('Error in searchResults:', error);
+        console.error('Error details:', error.message, error.stack);
     }
 
     return results;
@@ -102,8 +172,6 @@ function searchResults(html) {
 
 /**
  * Extract details from a movie/series page
- * @param {string} html - Raw HTML content
- * @returns {Array} Array with details object
  */
 function extractDetails(html) {
     const details = [];
@@ -112,7 +180,7 @@ function extractDetails(html) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        // Extract description
+        // Extract description with multiple selector strategies
         let description = '';
         const descSelectors = [
             '[class*="description"]',
@@ -121,7 +189,8 @@ function extractDetails(html) {
             'p:contains("plot")',
             '.content p',
             'meta[name="description"]',
-            '[itemprop="description"]'
+            '[itemprop="description"]',
+            'p' // Fallback to any paragraph
         ];
 
         for (const selector of descSelectors) {
@@ -132,7 +201,7 @@ function extractDetails(html) {
                 } else {
                     description = element.textContent || element.innerText || '';
                 }
-                if (description.trim()) break;
+                if (description.trim() && description.length > 10) break;
             }
         }
 
@@ -142,7 +211,8 @@ function extractDetails(html) {
             'h1',
             '.title',
             '[class*="original-title"]',
-            '[class*="alt-title"]'
+            '[class*="alt-title"]',
+            'title'
         ];
 
         for (const selector of aliasSelectors) {
@@ -184,13 +254,11 @@ function extractDetails(html) {
             }
         }
 
-        if (description || aliases || airdate) {
-            details.push({
-                description: description.trim() || 'No description available',
-                aliases: cleanTitle(aliases) || 'N/A',
-                airdate: airdate || 'Unknown'
-            });
-        }
+        details.push({
+            description: description.trim() || 'No description available',
+            aliases: cleanTitle(aliases) || 'N/A',
+            airdate: airdate || 'Unknown'
+        });
 
     } catch (error) {
         console.error('Error in extractDetails:', error);
@@ -201,8 +269,6 @@ function extractDetails(html) {
 
 /**
  * Extract episodes from a series page
- * @param {string} html - Raw HTML content
- * @returns {Array} Array of episode objects
  */
 function extractEpisodes(html) {
     const episodes = [];
@@ -211,13 +277,14 @@ function extractEpisodes(html) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        // Look for episode links
+        // Look for episode links with multiple selector strategies
         const episodeSelectors = [
             'a[href*="/series/"][href*="/1/"]', // Season 1 episodes
             'a[href*="/episodes/"]',
             '[class*="episode"] a',
             '[class*="episode-item"] a',
-            '.episode-list a'
+            '.episode-list a',
+            'a[href*="/watch/"]' // Alternative watch pattern
         ];
 
         let episodeLinks = [];
@@ -231,7 +298,7 @@ function extractEpisodes(html) {
                 const href = link.getAttribute('href');
                 if (!href) return;
 
-                // Extract episode number
+                // Extract episode number from URL pattern
                 let episodeNumber = '';
 
                 // Try to extract from URL pattern like /series/id-title/season/episode
@@ -273,15 +340,13 @@ function extractEpisodes(html) {
 
 /**
  * Extract stream URL from a movie/episode page
- * @param {string} html - Raw HTML content
- * @returns {string|null} Stream URL or null if not found
  */
 function extractStreamUrl(html) {
     try {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        // Look for video sources
+        // Look for video sources with comprehensive detection
         const videoSelectors = [
             'video source',
             'video',
@@ -296,7 +361,7 @@ function extractStreamUrl(html) {
             const element = doc.querySelector(selector);
             if (element) {
                 const src = element.src || element.getAttribute('data-src') || element.getAttribute('href');
-                if (src) {
+                if (src && (src.includes('.mp4') || src.includes('.m3u8') || src.includes('player'))) {
                     return getAbsoluteUrl(src);
                 }
             }
