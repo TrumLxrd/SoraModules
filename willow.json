@@ -10,7 +10,7 @@
     "streamType": "HLS",
     "quality": "1080p",
     "baseUrl": "https://willow.arlen.icu/",
-    "searchBaseUrl": "https://willow.arlen.icu/search?query=%s",
+    "searchBaseUrl": "https://api.themoviedb.org/3/search/multi?api_key=d9956abacedb5b43a16cc4864b26d451&query=%s",
     "scriptUrl": "https://raw.githubusercontent.com/TrumLxrd/SoraModules/refs/heads/main/willow.js",
     "asyncJS": true,
     "streamAsyncJS": false,
