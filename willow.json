@@ -11,7 +11,7 @@
     "quality": "1080p",
     "baseUrl": "https://willow.arlen.icu/",
     "searchBaseUrl": "https://willow.arlen.icu/search?query=%s",
-    "scriptUrl": "https://willow.arlen.icu/willow.js",
+    "scriptUrl": "https://raw.githubusercontent.com/TrumLxrd/SoraModules/refs/heads/main/willow.js",
     "asyncJS": true,
     "streamAsyncJS": false,
     "softsub": true
