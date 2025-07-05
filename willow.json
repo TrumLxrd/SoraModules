@@ -1,0 +1,18 @@
+{
+    "sourceName": "Willow",
+    "iconUrl": "https://willow.arlen.icu/favicon.ico",
+    "author": {
+        "name": "Trumy",
+        "icon": "https://avatars.githubusercontent.com/u/73558403?v=4"
+    },
+    "version": "1.0.0",
+    "language": "English",
+    "streamType": "HLS",
+    "quality": "1080p",
+    "baseUrl": "https://willow.arlen.icu/",
+    "searchBaseUrl": "https://willow.arlen.icu/search?query=%s",
+    "scriptUrl": "https://willow.arlen.icu/willow.js",
+    "asyncJS": true,
+    "streamAsyncJS": false,
+    "softsub": true
+}
