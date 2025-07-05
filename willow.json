@@ -12,7 +12,7 @@
     "baseUrl": "https://willow.arlen.icu/",
     "searchBaseUrl": "https://willow.arlen.icu/search?q=%s",
     "scriptUrl": "https://raw.githubusercontent.com/TrumLxrd/SoraModules/refs/heads/main/willow.js",
-    "asyncJS": true,
-    "streamAsyncJS": false,
+   "asyncJS": false,
+   "streamAsyncJS": false,
     "softsub": true
 }
