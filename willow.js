@@ -1,427 +1,353 @@
 /**
- * Willow.arlen.icu Sora Scraper Module - CORRECTED VERSION
- * Fixed searchResults function to properly handle the current HTML structure
- * Supports both movies and TV series with episode extraction
+ * Willow Sora Scraper Module with TMDB API Integration
+ * Uses The Movie Database API for search and metadata
+ * Constructs streaming URLs for willow.arlen.icu
+ * API Key: d9956abacedb5b43a16cc4864b26d451
  */
 
-function cleanTitle(title) {
-    return title
-        .replace(/'/g, "'")
-        .replace(/–/g, "-")
-        .replace(/&#[0-9]+;/g, "")
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, "&")
-        .trim();
-}
+// TMDB API Configuration
+const TMDB_API_KEY = "d9956abacedb5b43a16cc4864b26d451";
+const TMDB_BASE_URL = "https://api.themoviedb.org/3";
+const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
+const WILLOW_BASE_URL = "https://willow.arlen.icu";
 
-function getAbsoluteUrl(url, baseUrl = "https://willow.arlen.icu") {
-    if (!url) return '';
-    if (url.startsWith('http')) return url;
-    if (url.startsWith('//')) return 'https:' + url;
-    if (url.startsWith('/')) return baseUrl + url;
-    return baseUrl + '/' + url;
+/**
+ * Utility function to make HTTP requests
+ * Compatible with Sora's soraFetch if available, otherwise uses basic fetch
+ */
+async function makeRequest(url, options = {}) {
+    try {
+        // Use soraFetch if available (Sora environment)
+        if (typeof soraFetch !== 'undefined') {
+            const response = await soraFetch(url, options);
+            return await response.json();
+        }
+
+        // Fallback to standard fetch
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                ...options.headers
+            },
+            ...options
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Request failed:', error);
+        throw error;
+    }
 }
 
 /**
- * CORRECTED: Extract search results from HTML - Updated for current willow.arlen.icu structure
+ * Search for movies and TV shows using TMDB API
+ * @param {string} keyword - Search query
+ * @returns {string} JSON string of search results
  */
-function searchResults(html) {
-    const results = [];
-
+async function searchResults(keyword) {
     try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        console.log(`Searching for: "${keyword}"`);
 
-        // NEW: Look for the specific search results structure found on willow.arlen.icu
-        // The search results page has a "SEARCH RESULTS" section with specific formatting
-
-        // First, check if this is the search results page with actual results
-        const searchResultsSection = doc.querySelector('h1, h2, h3');
-        const isSearchResultsPage = searchResultsSection && 
-            (searchResultsSection.textContent.includes('SEARCH RESULTS') || 
-             doc.body.textContent.includes('SEARCH RESULTS'));
-
-        if (isSearchResultsPage) {
-            // Look for movie/series cards in the search results section
-            // Based on the HTML structure, each result appears to be in a specific format
-            const movieCards = doc.querySelectorAll('div, section, article');
-
-            for (const card of movieCards) {
-                try {
-                    // Look for title patterns within each potential card
-                    const titleElements = card.querySelectorAll('h1, h2, h3, h4, h5, h6, .title, [class*="title"]');
-                    const links = card.querySelectorAll('a[href*="/movies/"], a[href*="/series/"]');
-
-                    // Check if this card contains a movie/series
-                    if (links.length > 0 || titleElements.length > 0) {
-                        let title = '';
-                        let href = '';
-                        let image = '';
-
-                        // Extract link first
-                        if (links.length > 0) {
-                            href = links[0].getAttribute('href');
-                        }
-
-                        // Extract title from various possible locations
-                        for (const titleEl of titleElements) {
-                            const textContent = titleEl.textContent || titleEl.innerText || '';
-                            if (textContent.trim() && !textContent.includes('SEARCH RESULTS') && 
-                                !textContent.includes('Pages') && textContent.length > 1) {
-                                title = textContent.trim();
-                                break;
-                            }
-                        }
-
-                        // If no title found in headers, look in the card text
-                        if (!title) {
-                            const cardText = card.textContent || card.innerText || '';
-                            const lines = cardText.split('\n').filter(line => line.trim());
-                            for (const line of lines) {
-                                if (line.trim() && !line.includes('SEARCH RESULTS') && 
-                                    !line.includes('Pages') && line.length > 1 && line.length < 100) {
-                                    title = line.trim();
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Look for images
-                        const img = card.querySelector('img');
-                        if (img) {
-                            image = img.src || img.getAttribute('data-src') || '';
-                        }
-
-                        // If we found valid data, add to results
-                        if (title && title.length > 1) {
-                            results.push({
-                                title: cleanTitle(title),
-                                image: getAbsoluteUrl(image),
-                                href: getAbsoluteUrl(href)
-                            });
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Error parsing search result card:', e);
-                }
-            }
+        if (!keyword || keyword.trim() === '') {
+            console.log('Empty search keyword');
+            return JSON.stringify([]);
         }
 
-        // FALLBACK: If no results found with the above method, try alternative selectors
-        if (results.length === 0) {
-            // Try to find any links that contain movie or series patterns
-            const allLinks = doc.querySelectorAll('a[href*="/movies/"], a[href*="/series/"]');
+        const encodedKeyword = encodeURIComponent(keyword.trim());
+        const searchUrl = `${TMDB_BASE_URL}/search/multi?api_key=${TMDB_API_KEY}&query=${encodedKeyword}&include_adult=false`;
 
-            allLinks.forEach(link => {
-                try {
-                    const href = link.getAttribute('href');
-                    let title = link.textContent || link.innerText || '';
+        console.log(`TMDB Search URL: ${searchUrl}`);
 
-                    // If link doesn't have text, look for nearby text
-                    if (!title.trim()) {
-                        const parent = link.parentElement;
-                        if (parent) {
-                            title = parent.textContent || parent.innerText || '';
-                        }
-                    }
+        const data = await makeRequest(searchUrl);
 
-                    // Extract title from URL if still no title
-                    if (!title.trim() && href) {
-                        const urlMatch = href.match(/\/(movies|series)\/\d+-(.+)$/);
-                        if (urlMatch) {
-                            title = urlMatch[2].replace(/-/g, ' ');
-                        }
-                    }
+        if (!data || !data.results || !Array.isArray(data.results)) {
+            console.log('Invalid TMDB response format');
+            return JSON.stringify([]);
+        }
 
-                    const img = link.querySelector('img') || link.parentElement?.querySelector('img');
-                    const image = img ? img.src || img.getAttribute('data-src') || '' : '';
+        console.log(`Found ${data.results.length} results from TMDB`);
 
-                    if (title.trim() && href) {
-                        results.push({
-                            title: cleanTitle(title),
-                            image: getAbsoluteUrl(image),
-                            href: getAbsoluteUrl(href)
-                        });
-                    }
-                } catch (e) {
-                    console.warn('Error parsing fallback link:', e);
+        const transformedResults = data.results
+            .filter(result => {
+                // Filter out person results and items without titles
+                return (result.media_type === 'movie' || result.media_type === 'tv') && 
+                       (result.title || result.name);
+            })
+            .map(result => {
+                const isMovie = result.media_type === 'movie' || result.title;
+                const title = result.title || result.name || result.original_title || result.original_name || 'Unknown';
+                const releaseYear = result.release_date ? 
+                    result.release_date.split('-')[0] : 
+                    (result.first_air_date ? result.first_air_date.split('-')[0] : '');
+
+                const titleWithYear = releaseYear ? `${title} (${releaseYear})` : title;
+                const image = result.poster_path ? `${TMDB_IMAGE_BASE}${result.poster_path}` : '';
+
+                // Construct willow.arlen.icu URLs based on TMDB data
+                let href;
+                if (isMovie) {
+                    href = `${WILLOW_BASE_URL}/movies/${result.id}-${title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+                } else {
+                    href = `${WILLOW_BASE_URL}/series/${result.id}-${title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
                 }
+
+                return {
+                    title: titleWithYear,
+                    image: image,
+                    href: href
+                };
             });
-        }
 
-        // Remove duplicates based on href
-        const uniqueResults = [];
-        const seenHrefs = new Set();
+        console.log(`Transformed ${transformedResults.length} results for Sora`);
 
-        for (const result of results) {
-            if (result.href && !seenHrefs.has(result.href)) {
-                seenHrefs.add(result.href);
-                uniqueResults.push(result);
-            }
-        }
-
-        console.log(`Found ${uniqueResults.length} search results`);
+        return JSON.stringify(transformedResults);
 
     } catch (error) {
         console.error('Error in searchResults:', error);
-        console.error('Error details:', error.message, error.stack);
+        return JSON.stringify([{
+            title: 'Search Error - Check API Key',
+            image: '',
+            href: ''
+        }]);
     }
-
-    return results;
 }
 
 /**
- * Extract details from a movie/series page
+ * Extract movie/TV show details using TMDB API
+ * @param {string} url - The URL from search results
+ * @returns {string} JSON string of details
  */
-function extractDetails(html) {
-    const details = [];
-
+async function extractDetails(url) {
     try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        console.log(`Extracting details from: ${url}`);
 
-        // Extract description with multiple selector strategies
-        let description = '';
-        const descSelectors = [
-            '[class*="description"]',
-            '[class*="overview"]',
-            '[class*="synopsis"]',
-            'p:contains("plot")',
-            '.content p',
-            'meta[name="description"]',
-            '[itemprop="description"]',
-            'p' // Fallback to any paragraph
-        ];
+        // Parse TMDB ID from the constructed URL
+        const movieMatch = url.match(/\/movies\/(\d+)-/);
+        const seriesMatch = url.match(/\/series\/(\d+)-/);
 
-        for (const selector of descSelectors) {
-            const element = doc.querySelector(selector);
-            if (element) {
-                if (element.tagName === 'META') {
-                    description = element.getAttribute('content') || '';
-                } else {
-                    description = element.textContent || element.innerText || '';
-                }
-                if (description.trim() && description.length > 10) break;
-            }
+        let tmdbId, mediaType;
+
+        if (movieMatch) {
+            tmdbId = movieMatch[1];
+            mediaType = 'movie';
+        } else if (seriesMatch) {
+            tmdbId = seriesMatch[1];
+            mediaType = 'tv';
+        } else {
+            console.log('Could not parse TMDB ID from URL');
+            return JSON.stringify([]);
         }
 
-        // Extract aliases/alternative titles
-        let aliases = '';
-        const aliasSelectors = [
-            'h1',
-            '.title',
-            '[class*="original-title"]',
-            '[class*="alt-title"]',
-            'title'
-        ];
+        console.log(`Getting details for ${mediaType} ID: ${tmdbId}`);
 
-        for (const selector of aliasSelectors) {
-            const element = doc.querySelector(selector);
-            if (element) {
-                aliases = element.textContent || element.innerText || '';
-                if (aliases.trim()) break;
-            }
+        const detailsUrl = `${TMDB_BASE_URL}/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
+        const data = await makeRequest(detailsUrl);
+
+        if (!data) {
+            console.log('No data received from TMDB details API');
+            return JSON.stringify([]);
         }
 
-        // Extract air date/release year
-        let airdate = '';
-        const airdateSelectors = [
-            '[class*="year"]',
-            '[class*="date"]',
-            '[class*="release"]',
-            'time',
-            '.release-date'
-        ];
+        const title = data.title || data.name || 'Unknown';
+        const originalTitle = data.original_title || data.original_name || '';
+        const description = data.overview || 'No description available';
+        const releaseDate = data.release_date || data.first_air_date || 'Unknown';
+        const rating = data.vote_average || 0;
+        const genres = data.genres ? data.genres.map(g => g.name).join(', ') : 'Unknown';
 
-        for (const selector of airdateSelectors) {
-            const element = doc.querySelector(selector);
-            if (element) {
-                const text = element.textContent || element.innerText || element.getAttribute('datetime') || '';
-                const yearMatch = text.match(/\b(19|20)\d{2}\b/);
-                if (yearMatch) {
-                    airdate = yearMatch[0];
-                    break;
-                }
-            }
-        }
+        const details = [{
+            description: description,
+            aliases: originalTitle !== title ? originalTitle : 'N/A',
+            airdate: releaseDate,
+            rating: rating.toString(),
+            genres: genres,
+            runtime: data.runtime || data.episode_run_time?.[0] || 'Unknown'
+        }];
 
-        // Fallback: try to extract from URL or page title
-        if (!airdate) {
-            const title = doc.title || '';
-            const yearMatch = title.match(/\b(19|20)\d{2}\b/);
-            if (yearMatch) {
-                airdate = yearMatch[0];
-            }
-        }
+        console.log(`Extracted details for: ${title}`);
 
-        details.push({
-            description: description.trim() || 'No description available',
-            aliases: cleanTitle(aliases) || 'N/A',
-            airdate: airdate || 'Unknown'
-        });
+        return JSON.stringify(details);
 
     } catch (error) {
         console.error('Error in extractDetails:', error);
+        return JSON.stringify([{
+            description: 'Error fetching details',
+            aliases: 'N/A',
+            airdate: 'Unknown',
+            rating: '0',
+            genres: 'Unknown',
+            runtime: 'Unknown'
+        }]);
     }
-
-    return details;
 }
 
 /**
- * Extract episodes from a series page
+ * Extract episodes for TV series using TMDB API
+ * @param {string} url - The series URL
+ * @returns {string} JSON string of episodes
  */
-function extractEpisodes(html) {
-    const episodes = [];
-
+async function extractEpisodes(url) {
     try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        console.log(`Extracting episodes from: ${url}`);
 
-        // Look for episode links with multiple selector strategies
-        const episodeSelectors = [
-            'a[href*="/series/"][href*="/1/"]', // Season 1 episodes
-            'a[href*="/episodes/"]',
-            '[class*="episode"] a',
-            '[class*="episode-item"] a',
-            '.episode-list a',
-            'a[href*="/watch/"]' // Alternative watch pattern
-        ];
+        // Check if this is a movie URL (movies don't have episodes)
+        const movieMatch = url.match(/\/movies\/(\d+)-/);
+        if (movieMatch) {
+            const tmdbId = movieMatch[1];
+            const movieUrl = `${WILLOW_BASE_URL}/movies/${tmdbId}-movie?play=true`;
 
-        let episodeLinks = [];
-        for (const selector of episodeSelectors) {
-            episodeLinks = doc.querySelectorAll(selector);
-            if (episodeLinks.length > 0) break;
+            return JSON.stringify([{
+                href: movieUrl,
+                number: '1',
+                title: 'Full Movie'
+            }]);
         }
 
-        episodeLinks.forEach((link, index) => {
-            try {
-                const href = link.getAttribute('href');
-                if (!href) return;
+        // Parse TV series ID
+        const seriesMatch = url.match(/\/series\/(\d+)-/);
+        if (!seriesMatch) {
+            console.log('Could not parse series ID from URL');
+            return JSON.stringify([]);
+        }
 
-                // Extract episode number from URL pattern
-                let episodeNumber = '';
+        const tmdbId = seriesMatch[1];
+        console.log(`Getting episodes for TV series ID: ${tmdbId}`);
 
-                // Try to extract from URL pattern like /series/id-title/season/episode
-                const urlMatch = href.match(/\/series\/\d+-[^/]+\/\d+\/(\d+)/);
-                if (urlMatch) {
-                    episodeNumber = urlMatch[1];
-                } else {
-                    // Try to extract from link text
-                    const text = link.textContent || link.innerText || '';
-                    const numberMatch = text.match(/(?:Episode|Ep\.?)\s*(\d+)|^(\d+)$/i);
-                    if (numberMatch) {
-                        episodeNumber = numberMatch[1] || numberMatch[2];
-                    } else {
-                        // Fallback: use index + 1
-                        episodeNumber = (index + 1).toString();
-                    }
-                }
+        // Get series details first to check number of seasons
+        const seriesUrl = `${TMDB_BASE_URL}/tv/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
+        const seriesData = await makeRequest(seriesUrl);
 
-                if (href && episodeNumber) {
-                    episodes.push({
-                        href: getAbsoluteUrl(href),
-                        number: episodeNumber
-                    });
-                }
-            } catch (e) {
-                console.warn('Error parsing episode link:', e);
-            }
+        if (!seriesData) {
+            console.log('No series data received');
+            return JSON.stringify([]);
+        }
+
+        // Get season 1 episodes (most common case)
+        const seasonUrl = `${TMDB_BASE_URL}/tv/${tmdbId}/season/1?api_key=${TMDB_API_KEY}&language=en-US`;
+        const seasonData = await makeRequest(seasonUrl);
+
+        if (!seasonData || !seasonData.episodes || !Array.isArray(seasonData.episodes)) {
+            console.log('No episodes found for season 1');
+            return JSON.stringify([]);
+        }
+
+        const episodes = seasonData.episodes.map(episode => {
+            const episodeUrl = `${WILLOW_BASE_URL}/series/${tmdbId}-${seriesData.name?.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'series'}/1/${episode.episode_number}`;
+
+            return {
+                href: episodeUrl,
+                number: episode.episode_number.toString(),
+                title: episode.name || `Episode ${episode.episode_number}`
+            };
         });
 
-        // Sort episodes by episode number
-        episodes.sort((a, b) => parseInt(a.number) - parseInt(b.number));
+        console.log(`Found ${episodes.length} episodes for season 1`);
+
+        return JSON.stringify(episodes);
 
     } catch (error) {
         console.error('Error in extractEpisodes:', error);
+        return JSON.stringify([]);
     }
-
-    return episodes;
 }
 
 /**
- * Extract stream URL from a movie/episode page
+ * Extract streaming URL from willow.arlen.icu page
+ * @param {string} url - The content URL
+ * @returns {string} Streaming URL or null
  */
-function extractStreamUrl(html) {
+async function extractStreamUrl(url) {
     try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        console.log(`Extracting stream URL from: ${url}`);
 
-        // Look for video sources with comprehensive detection
-        const videoSelectors = [
-            'video source',
-            'video',
-            'source[src]',
-            'iframe[src*="embed"]',
-            'iframe[src*="player"]',
-            '[data-src*=".mp4"]',
-            '[data-src*=".m3u8"]'
-        ];
+        // Add play parameter to the URL for willow.arlen.icu
+        const playUrl = url.includes('?') ? `${url}&play=true` : `${url}?play=true`;
 
-        for (const selector of videoSelectors) {
-            const element = doc.querySelector(selector);
-            if (element) {
-                const src = element.src || element.getAttribute('data-src') || element.getAttribute('href');
-                if (src && (src.includes('.mp4') || src.includes('.m3u8') || src.includes('player'))) {
-                    return getAbsoluteUrl(src);
-                }
+        console.log(`Play URL: ${playUrl}`);
+
+        // Try to fetch the page content
+        let response;
+        try {
+            if (typeof soraFetch !== 'undefined') {
+                response = await soraFetch(playUrl);
+            } else {
+                response = await fetch(playUrl);
             }
-        }
 
-        // Look for JavaScript embedded URLs
-        const scripts = doc.querySelectorAll('script');
-        for (const script of scripts) {
-            const scriptContent = script.textContent || script.innerText || '';
+            if (!response.ok) {
+                console.log(`HTTP error: ${response.status}`);
+                return null;
+            }
 
-            // Look for common video URL patterns
-            const urlPatterns = [
-                /["']([^"']*\.m3u8[^"']*)/g,
-                /["']([^"']*\.mp4[^"']*)/g,
-                /src["']?\s*[:=]\s*["']([^"']+)/g,
-                /url["']?\s*[:=]\s*["']([^"']+)/g
+            const html = await response.text();
+
+            // Look for common video URL patterns in the HTML
+            const videoUrlPatterns = [
+                /["']([^"']*\.m3u8[^"']*)/gi,
+                /["']([^"']*\.mp4[^"']*)/gi,
+                /src["']?\s*[:=]\s*["']([^"']+\.(?:m3u8|mp4))/gi,
+                /url["']?\s*[:=]\s*["']([^"']+\.(?:m3u8|mp4))/gi
             ];
 
-            for (const pattern of urlPatterns) {
-                const matches = scriptContent.matchAll(pattern);
+            for (const pattern of videoUrlPatterns) {
+                const matches = html.matchAll(pattern);
                 for (const match of matches) {
-                    const url = match[1];
-                    if (url && (url.includes('.m3u8') || url.includes('.mp4'))) {
-                        return getAbsoluteUrl(url);
+                    const potentialUrl = match[1];
+                    if (potentialUrl && (potentialUrl.includes('.m3u8') || potentialUrl.includes('.mp4'))) {
+                        console.log(`Found potential stream URL: ${potentialUrl}`);
+
+                        // Make URL absolute if relative
+                        if (potentialUrl.startsWith('//')) {
+                            return 'https:' + potentialUrl;
+                        } else if (potentialUrl.startsWith('/')) {
+                            return WILLOW_BASE_URL + potentialUrl;
+                        } else if (potentialUrl.startsWith('http')) {
+                            return potentialUrl;
+                        }
                     }
                 }
             }
-        }
 
-        // Check for data attributes and meta tags
-        const metaSelectors = [
-            'meta[property="og:video"]',
-            'meta[property="og:video:url"]',
-            'meta[name="twitter:player"]',
-            '[data-video-url]',
-            '[data-stream-url]'
-        ];
-
-        for (const selector of metaSelectors) {
-            const element = doc.querySelector(selector);
-            if (element) {
-                const url = element.getAttribute('content') || 
-                           element.getAttribute('data-video-url') || 
-                           element.getAttribute('data-stream-url');
-                if (url) {
-                    return getAbsoluteUrl(url);
-                }
+            // Look for video elements
+            const videoMatch = html.match(/<video[^>]*>.*?<source[^>]*src=["']([^"']+)["']/i);
+            if (videoMatch) {
+                console.log(`Found video source: ${videoMatch[1]}`);
+                return videoMatch[1];
             }
+
+            // Look for iframe sources
+            const iframeMatch = html.match(/<iframe[^>]*src=["']([^"']+)["']/i);
+            if (iframeMatch) {
+                console.log(`Found iframe source: ${iframeMatch[1]}`);
+                return iframeMatch[1];
+            }
+
+        } catch (fetchError) {
+            console.log(`Fetch error: ${fetchError.message}`);
         }
 
-        // Last resort: look for any URL in the page that might be a stream
-        const pageText = doc.documentElement.textContent || doc.documentElement.innerText || '';
-        const streamUrlMatch = pageText.match(/https?:\/\/[^\s"'<>]+\.(m3u8|mp4)/i);
-        if (streamUrlMatch) {
-            return streamUrlMatch[0];
-        }
+        // Fallback: Return a constructed stream URL based on the content URL
+        console.log('No stream URL found, returning constructed URL');
+        return playUrl;
 
     } catch (error) {
         console.error('Error in extractStreamUrl:', error);
+        return null;
     }
+}
 
-    return null;
+// Export functions for Sora framework
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        searchResults,
+        extractDetails,
+        extractEpisodes,
+        extractStreamUrl
+    };
 }
